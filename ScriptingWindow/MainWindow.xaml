@@ -1,0 +1,29 @@
+﻿<Window x:Class="ScriptingWindow.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ScriptingWindow"
+        mc:Ignorable="d"
+        Title="MainWindow" Height="350" Width="525">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="45*"/>
+            <RowDefinition Height="45*"/>
+            <RowDefinition Height="10*"/>
+        </Grid.RowDefinitions>
+        <Popup Name="intellisensePopup" Margin="1,1,1,1" HorizontalAlignment="Left"   
+ VerticalAlignment="Top" Width="150" Height="200" Placement="Bottom" StaysOpen="False" IsOpen="False">
+            <ListBox Name="lstIntellisenseSuggestions" ItemsSource="{Binding IntellisenseSymbols}"/>
+        </Popup>
+        <TextBox Grid.Row="0" Name="txtCode" FontFamily="Consolas" AcceptsReturn="True" KeyUp="txtCode_KeyUp"/>
+
+        <ScrollViewer Grid.Row="1" Name="txtOutputView" >
+            <TextBox Name="txtOutput" TextWrapping="Wrap" FontFamily="Consolas" IsReadOnly="True"/>
+        </ScrollViewer>
+        <StackPanel Orientation="Horizontal" Grid.Row="2">
+            <Button Name="cmdGo" Content="Go" Click="cmdGo_Click" />
+            <Button Name="cmdAnalyze" Content="Analyze" Click="cmdAnalyze_Click" />
+        </StackPanel>
+    </Grid>
+</Window>
