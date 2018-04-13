@@ -15,7 +15,7 @@ namespace ScriptingWindow
     public partial class MainWindow : Window
     {
         public ObservableCollection<ISymbol> IntellisenseSymbols { get; private set; }
-        
+
         public MainWindow()
         {
             InitializeComponent();
@@ -25,10 +25,10 @@ namespace ScriptingWindow
             DataContext = this;
 
             Logger.LogWritten += (s, msg) =>
-            {
-                txtOutput.Text += msg + "\n";
-                txtOutputView.ScrollToEnd();
-            };
+                                 {
+                                     txtOutput.Text += msg + "\n";
+                                     txtOutputView.ScrollToEnd();
+                                 };
         }
 
         private List<Record> _Records;
@@ -74,7 +74,8 @@ namespace ScriptingWindow
                         .WithImports(
                             "ScriptingWindow" // for static Logger class
                             , "System.Collections.Generic" // for IEnumerable goodies
-                        ), typeof(ScriptGlobals));
+                        ).WithEmitDebugInformation(true)
+                        , typeof(ScriptGlobals));
         }
         private void cmdGo_Click(object sender, RoutedEventArgs e)
         {
@@ -101,11 +102,12 @@ namespace ScriptingWindow
 
             Compilation compilation = script.GetCompilation();
             SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
+            syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
             SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
             SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
 
             var variableDecls = syntaxTreeRoot.DescendantNodes().OfType<VariableDeclaratorSyntax>();
-            
+
             foreach (var variableDecl in variableDecls)
             {
                 // see if variableDecl contains an InvocationExpression
@@ -139,49 +141,82 @@ namespace ScriptingWindow
             }
         }
 
-        private void txtCode_KeyUp(object sender, System.Windows.Input.KeyEventArgs e)
-        {
-            intellisensePopup.IsOpen = false;
-            if (e.Key != System.Windows.Input.Key.Decimal && e.Key != System.Windows.Input.Key.OemPeriod)
-            {
-                return;
-            }
-
-            // get the script up to now--not compilable but can still get syntax tree
-            Script script = Setup(); 
-            Compilation compilation = script.GetCompilation();
-            SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-            SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
-            SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
-
-            // let's try searching backwards from the last available period token and go from there
-            // TODO work from the caret position instead
-            SyntaxNode root = syntaxTree.GetRoot();
-
-            SyntaxToken lastDot = root.GetLastToken();
-            // TODO make sure the above is a dot
-            //
-
-            var identifier = lastDot.Parent as MemberAccessExpressionSyntax;
-            var lhsType = semanticModel.GetTypeInfo(identifier.Expression).Type;
-
-            var symbols = semanticModel.LookupSymbols(txtCode.CaretIndex, lhsType);
-
-            IntellisenseSymbols.Clear();
-            foreach (var symbol in symbols.GroupBy(x => x.Name).Select(grp => grp.First()))
-            {
-                IntellisenseSymbols.Add(symbol);
-            }
-
-            // finally, show the popup
-            ShowIntellisensePopup(txtCode.GetRectFromCharacterIndex(txtCode.CaretIndex, true));
-        }
-
         private void ShowIntellisensePopup(Rect pos)
         {
             intellisensePopup.PlacementTarget = txtCode;
             intellisensePopup.PlacementRectangle = pos;
             intellisensePopup.IsOpen = true;
+        }
+
+        private void txtCode_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        {
+            intellisensePopup.IsOpen = false;
+            if (e.Text == ".")
+            {
+                // get the script up to now--not compilable but can still get syntax tree
+                Script script = Setup();
+                Compilation compilation = script.GetCompilation();
+                SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
+                syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
+                SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
+                SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
+
+                // let's try searching backwards from the last available period token and go from there
+                // TODO work from the caret position instead
+
+                SyntaxToken lastDot = syntaxTreeRoot.GetLastToken();
+                // TODO make sure the above is a dot
+                //
+
+                var identifier = lastDot.Parent as IdentifierNameSyntax;
+                var lhsType = semanticModel.GetTypeInfo(identifier).Type;
+
+                var symbols = semanticModel.LookupSymbols(txtCode.CaretIndex, lhsType);
+
+                IntellisenseSymbols.Clear();
+                foreach (var symbol in symbols.GroupBy(x => x.Name).Select(grp => grp.First()))
+                {
+                    IntellisenseSymbols.Add(symbol);
+                }
+
+                // finally, show the popup
+                ShowIntellisensePopup(txtCode.GetRectFromCharacterIndex(txtCode.CaretIndex, true));
+            }
+            else if (e.Text == "(")
+            {
+                SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(txtCode.Text, CSharpParseOptions.Default
+                                                                   .WithDocumentationMode(DocumentationMode.Parse)
+                                                                   .WithKind(SourceCodeKind.Script)
+                                                                   );
+                
+                //XmlReferenceResolver xmlReferenceResolver = new X
+
+                var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, xmlReferenceResolver: XmlFileResolver.Default);
+
+                var compilation = CSharpCompilation.Create("parenAssem")
+                    .AddSyntaxTrees(syntaxTree)
+                    .AddReferences(new MetadataReference[] {
+                                   MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                                   MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
+                    })
+                    .WithOptions(options);
+
+                //Script script = Setup();
+                //Compilation compilation = script.GetCompilation();
+                //SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
+                //syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
+                SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
+                SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
+
+                var identifier = syntaxTreeRoot.FindToken(txtCode.CaretIndex - 1).Parent;
+                var methodSymbolCandidates = semanticModel.GetSymbolInfo(identifier);
+
+                // for now just take the first candidate if multiple
+                var methodSymbol = methodSymbolCandidates.CandidateSymbols.FirstOrDefault();
+                string xmlDocument = methodSymbol?.GetDocumentationCommentXml();
+
+                Logger.Write(xmlDocument);
+            }
         }
     }
 }

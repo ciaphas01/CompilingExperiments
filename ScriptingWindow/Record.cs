@@ -8,6 +8,9 @@ namespace ScriptingWindow
 {
     public class Record
     {
+        /// <summary>
+        ///  create me
+        /// </summary>
         public Record() { }
         public Record(Record rhs)
         {
@@ -27,5 +30,10 @@ namespace ScriptingWindow
         
         private List<Row> _Rows = new List<Row>();
         public IList<Row> Rows => _Rows;
+
+        /// <summary>
+        /// do a thing
+        /// </summary>
+        public void Foo() { }
     }
 }

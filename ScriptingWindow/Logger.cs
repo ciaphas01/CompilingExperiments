@@ -10,6 +10,11 @@ namespace ScriptingWindow
 {
     static public class Logger
     {
+        /// <summary>
+        /// write a message to any subscribers
+        /// </summary>
+        /// <param name="message"></param>
+        /// <param name="sender"></param>
         static public void Write(string message, object sender = null)
         {
             StackTrace stack = new StackTrace(true);

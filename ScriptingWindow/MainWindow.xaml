@@ -16,7 +16,7 @@
  VerticalAlignment="Top" Width="150" Height="200" Placement="Bottom" StaysOpen="False" IsOpen="False">
             <ListBox Name="lstIntellisenseSuggestions" ItemsSource="{Binding IntellisenseSymbols}"/>
         </Popup>
-        <TextBox Grid.Row="0" Name="txtCode" FontFamily="Consolas" AcceptsReturn="True" KeyUp="txtCode_KeyUp"/>
+        <TextBox Grid.Row="0" Name="txtCode" FontFamily="Consolas" AcceptsReturn="True" PreviewTextInput="txtCode_PreviewTextInput"/>
 
         <ScrollViewer Grid.Row="1" Name="txtOutputView" >
             <TextBox Name="txtOutput" TextWrapping="Wrap" FontFamily="Consolas" IsReadOnly="True"/>
