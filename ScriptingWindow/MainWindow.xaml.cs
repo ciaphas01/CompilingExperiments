@@ -102,7 +102,6 @@ namespace ScriptingWindow
 
             Compilation compilation = script.GetCompilation();
             SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-            syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
             SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
             SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
 
@@ -157,7 +156,6 @@ namespace ScriptingWindow
                 Script script = Setup();
                 Compilation compilation = script.GetCompilation();
                 SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-                syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
                 SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
                 SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
 
@@ -184,27 +182,10 @@ namespace ScriptingWindow
             }
             else if (e.Text == "(")
             {
-                SyntaxTree syntaxTree = CSharpSyntaxTree.ParseText(txtCode.Text, CSharpParseOptions.Default
-                                                                   .WithDocumentationMode(DocumentationMode.Parse)
-                                                                   .WithKind(SourceCodeKind.Script)
-                                                                   );
+                Script script = Setup();
+                Compilation compilation = script.GetCompilation();
+                SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
                 
-                //XmlReferenceResolver xmlReferenceResolver = new X
-
-                var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, xmlReferenceResolver: XmlFileResolver.Default);
-
-                var compilation = CSharpCompilation.Create("parenAssem")
-                    .AddSyntaxTrees(syntaxTree)
-                    .AddReferences(new MetadataReference[] {
-                                   MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                                   MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
-                    })
-                    .WithOptions(options);
-
-                //Script script = Setup();
-                //Compilation compilation = script.GetCompilation();
-                //SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-                //syntaxTree = syntaxTree.WithRootAndOptions(syntaxTree.GetRoot(), syntaxTree.Options.WithDocumentationMode(DocumentationMode.Parse));
                 SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
                 SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
 
@@ -213,9 +194,8 @@ namespace ScriptingWindow
 
                 // for now just take the first candidate if multiple
                 var methodSymbol = methodSymbolCandidates.CandidateSymbols.FirstOrDefault();
-                string xmlDocument = methodSymbol?.GetDocumentationCommentXml();
 
-                Logger.Write(xmlDocument);
+                int xxx = 0;
             }
         }
     }
