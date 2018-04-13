@@ -14,9 +14,9 @@
         </Grid.RowDefinitions>
         <Popup Name="intellisensePopup" Margin="1,1,1,1" HorizontalAlignment="Left"   
  VerticalAlignment="Top" Width="150" Height="200" Placement="Bottom" StaysOpen="False" IsOpen="False">
-            <ListBox Name="lstIntellisenseSuggestions" ItemsSource="{Binding IntellisenseSymbols}"/>
+            <ListBox Name="lstIntellisenseSuggestions" ItemsSource="{Binding FilteredIntellisenseItems}"/>
         </Popup>
-        <TextBox Grid.Row="0" Name="txtCode" FontFamily="Consolas" AcceptsReturn="True" PreviewTextInput="txtCode_PreviewTextInput"/>
+        <TextBox Grid.Row="0" Name="txtCode" FontFamily="Consolas" AcceptsReturn="True" TextChanged="txtCode_TextChanged"/>
 
         <ScrollViewer Grid.Row="1" Name="txtOutputView" >
             <TextBox Name="txtOutput" TextWrapping="Wrap" FontFamily="Consolas" IsReadOnly="True"/>

@@ -9,18 +9,25 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Collections.ObjectModel;
+using Microsoft.CodeAnalysis.Text;
+using Microsoft.CodeAnalysis.Completion;
+using System.Collections.Immutable;
 
 namespace ScriptingWindow
 {
     public partial class MainWindow : Window
     {
-        public ObservableCollection<ISymbol> IntellisenseSymbols { get; private set; }
+        private ImmutableArray<CompletionItem> AllIntellisenseItems;
+        public ObservableCollection<string> FilteredIntellisenseItems { get; private set; }
+
+        private readonly AdhocWorkspace workspace;
+        private Document document;
 
         public MainWindow()
         {
             InitializeComponent();
 
-            IntellisenseSymbols = new ObservableCollection<ISymbol>();
+            FilteredIntellisenseItems = new ObservableCollection<string>();
 
             DataContext = this;
 
@@ -29,6 +36,15 @@ namespace ScriptingWindow
                                      txtOutput.Text += msg + "\n";
                                      txtOutputView.ScrollToEnd();
                                  };
+
+            this.workspace = new AdhocWorkspace();
+            var solution = workspace.AddSolution(SolutionInfo.Create(SolutionId.CreateNewId(), VersionStamp.Default));
+            var project = workspace.AddProject(ProjectInfo.Create(ProjectId.CreateNewId(), VersionStamp.Default, "Test", "Test", LanguageNames.CSharp,
+                metadataReferences: new MetadataReference[] {
+                            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                            MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
+                        }));
+            this.document = workspace.AddDocument(DocumentInfo.Create(DocumentId.CreateNewId(project.Id), "Script.csx", sourceCodeKind: SourceCodeKind.Script));
         }
 
         private List<Record> _Records;
@@ -77,6 +93,7 @@ namespace ScriptingWindow
                         ).WithEmitDebugInformation(true)
                         , typeof(ScriptGlobals));
         }
+
         private void cmdGo_Click(object sender, RoutedEventArgs e)
         {
             Script script = Setup();
@@ -147,55 +164,43 @@ namespace ScriptingWindow
             intellisensePopup.IsOpen = true;
         }
 
-        private void txtCode_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
+        private async void txtCode_TextChanged(object sender, System.Windows.Controls.TextChangedEventArgs e)
         {
-            intellisensePopup.IsOpen = false;
-            if (e.Text == ".")
+
+            var completionService = CompletionService.GetService(document);
+            var sourceText = SourceText.From(txtCode.Text);
+
+            if (txtCode.Text.Length > 0 &&
+                completionService.ShouldTriggerCompletion(
+                    SourceText.From(txtCode.Text),
+                    txtCode.CaretIndex,
+                    CompletionTrigger.CreateInsertionTrigger(txtCode.Text[txtCode.CaretIndex - 1])))
             {
-                // get the script up to now--not compilable but can still get syntax tree
-                Script script = Setup();
-                Compilation compilation = script.GetCompilation();
-                SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-                SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
-                SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
+                var newSolution = workspace.CurrentSolution.WithDocumentText(document.Id, sourceText);
+                workspace.TryApplyChanges(newSolution);
+                document = newSolution.GetDocument(document.Id);
 
-                // let's try searching backwards from the last available period token and go from there
-                // TODO work from the caret position instead
-
-                SyntaxToken lastDot = syntaxTreeRoot.GetLastToken();
-                // TODO make sure the above is a dot
-                //
-
-                var identifier = lastDot.Parent as IdentifierNameSyntax;
-                var lhsType = semanticModel.GetTypeInfo(identifier).Type;
-
-                var symbols = semanticModel.LookupSymbols(txtCode.CaretIndex, lhsType);
-
-                IntellisenseSymbols.Clear();
-                foreach (var symbol in symbols.GroupBy(x => x.Name).Select(grp => grp.First()))
+                var completionList = await completionService.GetCompletionsAsync(document, txtCode.CaretIndex);
+                if (completionList != null)
                 {
-                    IntellisenseSymbols.Add(symbol);
+                    AllIntellisenseItems = completionList.Items;
+
+                    // finally, show the popup
+                    ShowIntellisensePopup(txtCode.GetRectFromCharacterIndex(txtCode.CaretIndex, true));
                 }
-
-                // finally, show the popup
-                ShowIntellisensePopup(txtCode.GetRectFromCharacterIndex(txtCode.CaretIndex, true));
             }
-            else if (e.Text == "(")
+
+            if (intellisensePopup.IsOpen)
             {
-                Script script = Setup();
-                Compilation compilation = script.GetCompilation();
-                SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-                
-                SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
-                SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
+                var span = completionService.GetDefaultCompletionListSpan(sourceText, txtCode.CaretIndex);
+                var filterText = sourceText.GetSubText(span).ToString();
 
-                var identifier = syntaxTreeRoot.FindToken(txtCode.CaretIndex - 1).Parent;
-                var methodSymbolCandidates = semanticModel.GetSymbolInfo(identifier);
-
-                // for now just take the first candidate if multiple
-                var methodSymbol = methodSymbolCandidates.CandidateSymbols.FirstOrDefault();
-
-                int xxx = 0;
+                FilteredIntellisenseItems.Clear();
+                foreach (var item in AllIntellisenseItems)
+                {
+                    if (item.DisplayText.StartsWith(filterText, StringComparison.InvariantCultureIgnoreCase))
+                        FilteredIntellisenseItems.Add(item.DisplayText);
+                }
             }
         }
     }
