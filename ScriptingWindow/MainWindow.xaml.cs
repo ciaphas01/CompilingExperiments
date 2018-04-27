@@ -13,12 +13,16 @@ using System.IO;
 using Microsoft.CodeAnalysis.Emit;
 using Microsoft.CodeAnalysis.Scripting.Hosting;
 using System.Reflection;
+using System.Runtime.InteropServices;
 
 namespace ScriptingWindow
 {
     public partial class MainWindow : Window
     {
         public ObservableCollection<ISymbol> IntellisenseSymbols { get; private set; }
+
+        private Assembly _assembly = null;
+        private AppDomain _appDomain = null;
 
         public MainWindow()
         {
@@ -37,12 +41,42 @@ namespace ScriptingWindow
 
         private List<Record> _Records;
 
-        public class ScriptGlobals
+        [Serializable]
+        public class UserCodeExecutionContext
         {
             public Record CurrentRecord;
             public void DoAThing()
             {
                 Logger.Write("Doing a thing");
+            }
+        }
+
+        [Serializable]
+        public class AssemblyWorker : MarshalByRefObject
+        {
+            private static Assembly _assembly = null;
+            public static Assembly Assembly => _assembly;
+            public static void Load()
+            {
+                byte[] dllBytes = AppDomain.CurrentDomain.GetData("dllBytes") as byte[];
+                byte[] pdbBytes = AppDomain.CurrentDomain.GetData("pdbBytes") as byte[];
+                _assembly = AppDomain.CurrentDomain.Load(dllBytes, pdbBytes);
+            }
+            
+            public static void PrintDomainStatic()
+            {
+                Logger.Write(AppDomain.CurrentDomain.FriendlyName);
+            }
+
+            public static void Execute()
+            {
+                if (_assembly == null) return;
+
+                UserCodeExecutionContext executionContext = AppDomain.CurrentDomain.GetData("executionContext") as UserCodeExecutionContext;
+                var type = _assembly.GetType("UserCodeClass");
+                var method = type.GetMethod("<Factory>", BindingFlags.Static | BindingFlags.Public);
+                method.Invoke(null, new object[] { new object[2] { executionContext, null } });
+                AppDomain.CurrentDomain.SetData("executionContext", executionContext);
             }
         }
 
@@ -74,15 +108,16 @@ namespace ScriptingWindow
             //string script = txtCode.Text;
 
             return CSharpScript.Create(script, ScriptOptions.Default
-                        .WithReferences(new MetadataReference[] {
-                            MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
-                            MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
-                        })
-                        .WithImports(
-                            "ScriptingWindow" // for static Logger class
-                            , "System.Collections.Generic" // for IEnumerable goodies
-                        ).WithEmitDebugInformation(true)
-                        , typeof(ScriptGlobals));
+                                                            .WithReferences(new MetadataReference[] {
+                                                                                                        MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                                                                                                        MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
+                                                                                                    })
+                                                            .WithImports(
+                                                                            "ScriptingWindow" // for static Logger class
+                                                                            , "System.Collections.Generic" // for IEnumerable goodies
+                                                            ).WithEmitDebugInformation(true),
+                                          typeof(UserCodeExecutionContext)
+                                      );
         }
         private void cmdGo_Click(object sender, RoutedEventArgs e)
         {
@@ -92,7 +127,21 @@ namespace ScriptingWindow
                                                 .WithPlatform(Platform.X64)
                                                 .WithOptimizationLevel(OptimizationLevel.Debug)
                                                 .WithModuleName("UserCode")
-                                                );
+                                                .WithScriptClassName("UserCodeClass")
+                                   ).WithAssemblyName("UserCode");
+
+            if (_assembly != null)
+            {
+                _assembly = null;
+                AppDomain.Unload(_appDomain);
+                _appDomain = null;
+
+                // are these 3 lines needed??? test thoroughly!
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                // force-kill vsdbg-ui.exe? or tell the user to Detach Or Else?
+            }
 
             using (var modFS = new FileStream("UserCode.dll", FileMode.Create))
             using (var pdbFS = new FileStream("UserCode.pdb", FileMode.Create))
@@ -104,19 +153,63 @@ namespace ScriptingWindow
                 }
                 else
                 {
-                    Logger.Write("Failed!");
+                    Logger.Write("Compile failed! Diagnostics follow");
+                    IEnumerable<Diagnostic> failures = result.Diagnostics.Where(diagnostic =>
+                                                                                           diagnostic.IsWarningAsError ||
+                                                                                           diagnostic.Severity == DiagnosticSeverity.Error);
+
+                    foreach (Diagnostic diagnostic in result.Diagnostics)
+                    {
+                        Logger.Write($"{diagnostic.Id} - {diagnostic.Location}: {diagnostic.GetMessage()}");
+                    }
+
+                    return;
                 }
             }
+            
+            var appDomainSetup = new AppDomainSetup();
+            appDomainSetup.ShadowCopyFiles = "true";
+            appDomainSetup.ApplicationBase = AppDomain.CurrentDomain.BaseDirectory;
+            appDomainSetup.ApplicationName = "UserCode.dll";
+            appDomainSetup.LoaderOptimization = LoaderOptimization.SingleDomain;
+            _appDomain = AppDomain.CreateDomain("UserCodeDomain", AppDomain.CurrentDomain.Evidence, appDomainSetup);
+            byte[] dllBytes = File.ReadAllBytes("UserCode.dll");
+            byte[] pdbBytes = File.ReadAllBytes("UserCode.pdb");
 
-            var assembly = Assembly.Load(File.ReadAllBytes("UserCode.dll"), File.ReadAllBytes("UserCode.pdb"));
+            //_assembly = Assembly.Load(dllBytes, pdbBytes);
+            //_assembly = _appDomain.Load(dllBytes, pdbBytes);
+            _appDomain.SetData("dllBytes", dllBytes);
+            _appDomain.SetData("pdbBytes", pdbBytes);
+            _appDomain.DoCallBack(AssemblyWorker.Load);
 
-            var type = assembly.GetType("Submission#0");
+            UserCodeExecutionContext executionContext = new UserCodeExecutionContext();
+            executionContext.CurrentRecord = _Records[0];
+
+            Logger.Write($"Current record time = {executionContext.CurrentRecord.RecordTime}");
+            _appDomain.SetData("executionContext", executionContext);
+            _appDomain.DoCallBack(AssemblyWorker.Execute);
+            executionContext = _appDomain.GetData("executionContext") as UserCodeExecutionContext;
+            Logger.Write($"Post-invoke record time = {executionContext.CurrentRecord.RecordTime}");
+
+            return;
+
+            var assemblies = _appDomain.GetAssemblies();
+            _assembly = _appDomain.GetAssemblies().First((x) => x.GetName().Name == "UserCode");
+
+            
+            var type = _assembly.GetType("UserCodeClass");
             var method = type.GetMethod("<Factory>", BindingFlags.Static | BindingFlags.Public);
-            ScriptGlobals g = new ScriptGlobals();
-            g.CurrentRecord = _Records[0];
-            var parameters = method.GetParameters();
-            method.Invoke(null, new object[] { new object[2] { g, null } });
+            
+            Logger.Write($"Current record time = {executionContext.CurrentRecord.RecordTime}");
+            method.Invoke(null, new object[] { new object[2] { executionContext, null } });
+            Logger.Write($"Post-invoke record time = {executionContext.CurrentRecord.RecordTime}");
 
+            AppDomain.Unload(_appDomain);
+            _assembly = null;
+            _appDomain = null;
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
             /*
             try
             {

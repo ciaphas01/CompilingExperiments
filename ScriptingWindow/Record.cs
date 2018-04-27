@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 
 namespace ScriptingWindow
 {
+    [Serializable]
     public class Record
     {
         /// <summary>
