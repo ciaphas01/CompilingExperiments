@@ -9,6 +9,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using System.Collections.ObjectModel;
+using System.IO;
+using Microsoft.CodeAnalysis.Emit;
+using Microsoft.CodeAnalysis.Scripting.Hosting;
+using System.Reflection;
 
 namespace ScriptingWindow
 {
@@ -66,7 +70,10 @@ namespace ScriptingWindow
         {
             CreateRecords();
 
-            return CSharpScript.Create(txtCode.Text, ScriptOptions.Default
+            string script = $"#line 1 \"./UserCode.cs\"\r\n{txtCode.Text}";
+            //string script = txtCode.Text;
+
+            return CSharpScript.Create(script, ScriptOptions.Default
                         .WithReferences(new MetadataReference[] {
                             MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
                             MetadataReference.CreateFromFile (typeof(Logger).Assembly.Location) // for Logger class
@@ -80,7 +87,37 @@ namespace ScriptingWindow
         private void cmdGo_Click(object sender, RoutedEventArgs e)
         {
             Script script = Setup();
+            var comp = script.GetCompilation();
+            comp = comp.WithOptions(comp.Options.WithOutputKind(OutputKind.DynamicallyLinkedLibrary)
+                                                .WithPlatform(Platform.X64)
+                                                .WithOptimizationLevel(OptimizationLevel.Debug)
+                                                .WithModuleName("UserCode")
+                                                );
 
+            using (var modFS = new FileStream("UserCode.dll", FileMode.Create))
+            using (var pdbFS = new FileStream("UserCode.pdb", FileMode.Create))
+            {
+                EmitResult result = comp.Emit(modFS, pdbFS, options: new EmitOptions(false, DebugInformationFormat.PortablePdb));
+                if (result.Success)
+                {
+                    Logger.Write("Compiled and saved!");
+                }
+                else
+                {
+                    Logger.Write("Failed!");
+                }
+            }
+
+            var assembly = Assembly.Load(File.ReadAllBytes("UserCode.dll"), File.ReadAllBytes("UserCode.pdb"));
+
+            var type = assembly.GetType("Submission#0");
+            var method = type.GetMethod("<Factory>", BindingFlags.Static | BindingFlags.Public);
+            ScriptGlobals g = new ScriptGlobals();
+            g.CurrentRecord = _Records[0];
+            var parameters = method.GetParameters();
+            method.Invoke(null, new object[] { new object[2] { g, null } });
+
+            /*
             try
             {
                 ScriptGlobals g = new ScriptGlobals();
@@ -94,6 +131,7 @@ namespace ScriptingWindow
             {
                 Logger.Write($"Exception: {ex.Message}");
             }
+            */
         }
 
         private void cmdAnalyze_Click(object sender, RoutedEventArgs e)
@@ -139,7 +177,7 @@ namespace ScriptingWindow
                 }
             }
         }
-
+        
         private void ShowIntellisensePopup(Rect pos)
         {
             intellisensePopup.PlacementTarget = txtCode;
@@ -149,6 +187,7 @@ namespace ScriptingWindow
 
         private void txtCode_PreviewTextInput(object sender, System.Windows.Input.TextCompositionEventArgs e)
         {
+            /*
             intellisensePopup.IsOpen = false;
             if (e.Text == ".")
             {
@@ -185,7 +224,7 @@ namespace ScriptingWindow
                 Script script = Setup();
                 Compilation compilation = script.GetCompilation();
                 SyntaxTree syntaxTree = compilation.SyntaxTrees.Single();
-                
+
                 SyntaxNode syntaxTreeRoot = syntaxTree.GetRoot();
                 SemanticModel semanticModel = compilation.GetSemanticModel(syntaxTree);
 
@@ -197,6 +236,7 @@ namespace ScriptingWindow
 
                 int xxx = 0;
             }
+            */
         }
     }
 }
